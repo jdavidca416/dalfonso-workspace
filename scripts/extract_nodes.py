@@ -65,9 +65,9 @@ def safe_name(value: str, fallback: str) -> str:
 
 def normalize_lf(text: str) -> str:
     """
-    Normaliza saltos de línea a LF y asegura un único newline final.
+    Normaliza saltos de linea a LF y asegura un unico newline final.
 
-    Convierte también separadores Unicode invisibles que aparecen a veces en
+    Convierte tambien separadores Unicode invisibles que aparecen a veces en
     exports y rompen el copy-paste desde VS Code:
       U+2028  LINE SEPARATOR
       U+2029  PARAGRAPH SEPARATOR
@@ -76,9 +76,9 @@ def normalize_lf(text: str) -> str:
     text = (
         text.replace("\r\n", "\n")
             .replace("\r", "\n")
-            .replace("", "\n")
-            .replace("", "\n")
-            .replace("", "\n")
+            .replace(chr(0x2028), "\n")
+            .replace(chr(0x2029), "\n")
+            .replace(chr(0x0085), "\n")
     )
     return text.rstrip() + "\n"
 
