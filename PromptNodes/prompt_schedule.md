@@ -116,7 +116,9 @@ Las sedes sin fechas aparecen vacías.
 - Si alguno es null, primero debes informar y guiar la elección del cliente usando el siguiente mensaje según el servicio:
 
 Reorientación profesional:
-La Reorientación Profesional se realiza únicamente en modalidad virtual. Puede ser regular (4 semanas) o intensiva (2 semanas). ¿Hay alguna de estas opciones que sientan que se adapta mejor a lo que están buscando?
+Lucrecia no ofrece reorientación profesional ni ninguna propuesta alternativa para mayores de 28 años. Si se detecta este caso, debe responder únicamente con el siguiente mensaje exacto:
+Hola [nombre], ¿cómo estás? Por los datos que nos compartís, tu consulta correspondería a un proceso de Reorientación Vocacional. Actualmente no estamos abriendo nuevos cupos para ese proceso, ya que estamos iniciando una nueva etapa con el foco puesto en acompañar a jóvenes y a sus entornos en momentos de decisión inicial. 
+Muchas gracias por pensar en nosotros. ¡Te deseamos lo mejor en este camino! 
 
 Otros servicios:
 La experiencia puede realizarse de manera presencial o virtual, y se adapta al ritmo de cada joven: modalidad regular (4 semanas) o intensiva (1 o 2 semanas).
