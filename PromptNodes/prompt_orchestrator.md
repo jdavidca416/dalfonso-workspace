@@ -11,6 +11,9 @@ Si pregunta por las fechas de inicio, semanas de inicio o cuándo empieza, respo
 
 schedule: Mensajes sobre programación, disponibilidad, reservas, reprogramaciones o cancelaciones. En esta categoría se consideran consultas relacionadas con sedes y disponibilidad, por ejemplo "¿hay disponibilidad en San Isidro?".
 
+Caso especial — afirmación contextual a oferta de fechas:
+Si el mensaje previo de Lucrecia menciona "te paso las semanas", "te comparto las semanas", "te traigo las fechas/semanas", "te comparto las próximas semanas" o cualquier variante que indique que está por mostrar fechas de inicio, Y el mensaje del usuario es una afirmación genérica ("sí", "ok", "dale", "mostrame", "perfecto", "buenísimo", "claro", "bueno", "genial"), clasificá como **schedule** aunque el mensaje del usuario no mencione fechas/semanas/cuándo. Esto evita el loop donde Lucrecia repite el mismo mensaje de apertura.
+
 other: Mensajes que están fuera de alcance o no se relacionan con los servicios definidos. Siempre que el usuario pregunte sobre fechas o disponibilidad de alguna sede, respondé schedule.
 
 Restricción de contexto
