@@ -2,7 +2,7 @@
 
 Espacio de trabajo para el ajuste y mantenimiento del agente conversacional **Lucrecia** de **D'Alfonso** (Argentina).
 
-Versión base actual del agente: **v28 (2026-05-20)**.
+Versión base actual del agente: **v4 (2026-06-03)**.
 
 Este repositorio es la fuente de edición de los prompts y nodos de código. La estructura del flujo, IDs y conexiones la administra el sistema y queda fuera de scope: aquí solo trabajamos el **texto** de los nodos.
 
@@ -66,27 +66,25 @@ El directorio interno de direcciones (incluyendo Pilar) vive en `PromptNodes/pro
 
 Cada turno del usuario pasa por un orquestador, un extractor de estado y detectores de escalamiento antes de delegar la respuesta al prompt principal o a una rama especializada.
 
-### 2.1 Nodos de prompt (11)
+### 2.1 Nodos de prompt (9)
 
 | Nodo | Función |
 |---|---|
 | `prompt_orchestrator` | Clasifica el intent en `recommend`, `schedule` u `other`. |
 | `identify_state` | Devuelve JSON estricto con el estado de la conversación. |
-| `prompt_destinatario` | Clasifica al interlocutor en `Padre`, `Joven` o `Profesional`. |
-| `prompt_recommend` | Núcleo del agente: recomienda servicio, conduce el flujo de venta. |
+| `prompt_general` | Núcleo del agente (ex `prompt_recommend`): recomienda servicio, conduce el flujo de venta. |
 | `prompt_schedule` | Responde sobre disponibilidad consumiendo el calendario real. |
-| `prompt_other` | FAQ institucional, devolución vs reembolso, fuera de scope. |
-| `prompt_handoff` | Pedidos de contacto humano, horarios, info de la organización. |
-| `triggers_detection` | Clasifica el mensaje en GENERAL, SENSIBLE, PRIORITARIA o HUMANO. |
-| `prompt_scalation` | Mensaje de derivación a orientador en 24 hs hábiles. |
-| `no_study_detection` | Detecta perfiles >= 22 que nunca estudiaron o probaron varias carreras sin terminar. |
-| `no_study_scalation` | Mensaje de escalamiento para perfil sin estudios. |
+| `faq_preguntas_frecuentes` | FAQ institucional, devolución vs reembolso, fuera de scope (ex `prompt_other`). |
+| `prompt_humano` | Pedidos de contacto humano, horarios, info de la organización (ex `prompt_handoff`). |
+| `categorizador` | Clasifica el mensaje en GENERAL, SENSIBLE, PRIORITARIA o HUMANO (ex `triggers_detection`). |
+| `prompt_sensible` | Escalamiento para casos clínicos moderados (ex `prompt_casos_sensibles`). |
+| `prompt_prioritaria` | Escalamiento para riesgo vital o vulnerabilidad grave (ex `prompt_prioridad_maxima`). |
 
-> **Removidos en v26:** `reo_interest_detection`, `reo_scalation` (y los nodos auxiliares de condición/variable asociados).
+> **Removidos en v29–v30:** `prompt_destinatario`, `prompt_scalation`, `no_study_detection`, `no_study_scalation`, `reo_interest_detection`, `reo_scalation`.
 
-### 2.2 Nodos de código (11) — extractores regex desde `identify_state.output` o `triggers_detection.output`
+### 2.2 Nodos de código (5) — extractores regex desde `identify_state.output`
 
-`schedule`, `customer_name`, `customer_age`, `customer_location`, `parent_tutor_name`, `preferred_modality`, `program_pace`, `consulting_type`, `category`, `tone`.
+`customer_name`, `customer_age`, `parent_tutor_name`, `preferred_modality`, `program_pace`.
 
 ---
 
@@ -101,7 +99,7 @@ Cada turno del usuario pasa por un orquestador, un extractor de estado y detecto
 7. **Datos personales** (solo con intención clara de compra). No se pide nombre del padre/tutor.
 8. **Confirmación de interés** (solo si el interés no es claro).
 9. **Semanas de inicio.** Oferta proactiva con las semanas disponibles del calendario.
-10. **Envío del link de pago.** Solo si `selected_date != null` y `schedule_confirmed = true`.
+10. **Envío del link de pago.** Solo si `selected_date != null` y `schedule_confirmed == true`.
 11. **Cierre con pasos posteriores al pago.**
 
 ---
@@ -223,20 +221,18 @@ Marcadores en el archivo (para localizar y remover cuando vuelva el endpoint):
 
 Tres caminos disparan handoff con el nodo `*_scalation` correspondiente:
 
-1. **`triggers_detection`** clasifica el mensaje en una de 4 categorías:
+1. **`categorizador`** clasifica el mensaje en una de 4 categorías:
 
-| Categoría | Descripción | Acción |
+| Categoría | Descripción | Prompt de respuesta |
 |---|---|---|
-| GENERAL | Sin clasificación clínica. Confusión vocacional, consultas neutras. | Flujo normal — no escala. |
-| SENSIBLE | Síntoma clínico declarado, diagnóstico, tratamiento, crisis emocional moderada, o padre/madre con hijo sintomático. | Escala con `prompt_scalation`. |
-| PRIORITARIA | Ideación suicida, autolesión, o vulnerabilidad grave (violencia, abuso, consumo problemático). | Escala con `prompt_scalation` — prioridad máxima. |
-| HUMANO | Solicitud explícita de contacto con una persona (canal, turno, teléfono, etc.). | Escala con `prompt_handoff`. |
+| GENERAL | Sin clasificación clínica. Confusión vocacional, consultas neutras. | Flujo normal → `prompt_orchestrator` → `prompt_general` / `prompt_schedule` / `faq_preguntas_frecuentes`. |
+| SENSIBLE | Síntoma clínico declarado, diagnóstico, tratamiento, crisis emocional moderada, padre/madre con hijo sintomático. | `prompt_sensible` |
+| PRIORITARIA | Ideación suicida, autolesión, vulnerabilidad grave (violencia, abuso, consumo problemático). | `prompt_prioritaria` |
+| HUMANO | Solicitud explícita de contacto con una persona (canal, turno, teléfono, etc.). | `prompt_humano` |
 
 Solo se evalúa en primera persona o "mi hijo/a". Confusión vocacional **no** es síntoma clínico. Mención de "reorientación" → GENERAL (no escala).
 
-2. **Edad 23-28 años con consulta de tipo vocacional** → escalar (gating del paso 4 del flujo).
-
-3. **`no_study_detection = true`** (usuario >= 22 que nunca estudió o probó varias carreras sin terminar).
+2. **Edad 23-28 años con consulta de tipo vocacional** → la lógica de gating vive dentro de `prompt_general` (pendiente de implementación explícita en el prompt).
 
 **Estilo obligatorio del mensaje de escalamiento:** sin empatía previa, sin mayúsculas enfáticas, sin números de emergencia, sin frases tipo "nuestro equipo de especialistas". Dirigirse por el nombre del interesado (o del tutor si está claro que él conduce).
 
@@ -403,11 +399,11 @@ Síntoma detectado en QA: Lucrecia repetía "¿Te gustaría que te comparta las 
 ```
 dalfonso-workspace/
 ├── README.md                                 # este archivo (contexto operativo)
-├── CATEGORIAS.md                             # referencia de categorías de triggers_detection
-├── lucrecia_arg_stg_v28_2026-05-20.json      # export base actual del agente
-├── PromptNodes/                              # 11 archivos .md (uno por prompt)
+├── CATEGORIAS.md                             # referencia de categorías del categorizador
+├── Lucrecia_Arg___dev_v4_2026-06-03.json     # export base actual del agente
+├── PromptNodes/                              # 9 archivos .md (uno por prompt)
 ├── CodeNodes/
-│   └── GetDataNodes/                         # 11 archivos .js (extractores regex)
+│   └── GetDataNodes/                         # 5 archivos .js (extractores regex)
 ├── scripts/
 │   └── extract_nodes.py                      # regenera PromptNodes/ y CodeNodes/ desde un JSON
 └── VAV/                                      # validación / verificación (separado)
@@ -415,7 +411,7 @@ dalfonso-workspace/
 
 ### Documentos auxiliares
 
-- **`CATEGORIAS.md`** — Referencia de las 4 categorías (`GENERAL`, `SENSIBLE`, `PRIORITARIA`, `HUMANO`) que produce `triggers_detection`, sus reglas de activación y cómo se consumen en `prompt_scalation` / `prompt_handoff`. También diferencia las tres clasificaciones del flujo: intents del orchestrator, categorías de triggers, y bandera `no_study_detection`.
+- **`CATEGORIAS.md`** — Referencia de las 4 categorías (`GENERAL`, `SENSIBLE`, `PRIORITARIA`, `HUMANO`) que produce `categorizador`, sus reglas de activación y cómo se consumen en `prompt_sensible`, `prompt_prioritaria` y `prompt_humano`.
 
 Los archivos `.md` y `.js` contienen **únicamente** el texto del prompt o el código JS crudo, sin metadata, listos para copy-paste al sistema.
 
@@ -447,7 +443,7 @@ python3 scripts/extract_nodes.py --no-clean               # no elimina huérfano
 Comportamiento:
 
 - Cada `promptNode` → `PromptNodes/<label>.md`.
-- Cada `codeExecutionNode` con regex + lectura de `identify_state.output` o `triggers_detection.output` → `CodeNodes/GetDataNodes/<label>.js`. Cualquier otro → `CodeNodes/<label>.js`.
+- Cada `codeExecutionNode` con regex + lectura de `identify_state.output` → `CodeNodes/GetDataNodes/<label>.js`. Cualquier otro → `CodeNodes/<label>.js`.
 - Normaliza line endings a LF y elimina separadores Unicode invisibles (U+2028, U+2029, U+0085) que rompen el copy-paste desde VS Code.
 - Idempotente. Elimina huérfanos por defecto.
 
@@ -476,7 +472,8 @@ Comportamiento:
 | v26 | 2026-05-15 | Retiro de REO, nueva lógica por edad (16-22 / 23-28 / >28), mensaje fijo para mayores de 28, distinción explícita OV vs TDH por menciones de hábitos de estudio. |
 | **v28** | **2026-05-20** | Reescritura del prompt `identify_state` con estructura markdown más limpia (secciones, campos en negrita, reglas numeradas). Fix puntual en `prompt_recommend`: "orientar" → "guiar" en cierre activo de captura de nombre. |
 | **v28 +5 cards** | **2026-05-20** | (1) Reforzada diferenciación reembolso vs devolución (+ fast-path Paso 0). (2) Sedes bajo demanda — no listar todas las direcciones. (3) REO mid-conversación: prohibido re-saludar + mensaje canónico para 16-28. (4) Anti-loop Paso 7: oferta afirmativa de semanas + ruteo de afirmaciones en orchestrator. (5) Snapshot temporal de disponibilidad hardcodeado en `prompt_schedule` (endpoint caído). (+) Nuevo doc `CATEGORIAS.md`. |
-| **v29** | **2026-06-02** | Refactor de `triggers_detection`: sistema de 8 categorías + JSON reemplazado por 4 categorías planas (GENERAL, SENSIBLE, PRIORITARIA, HUMANO). Output pasa a ser texto plano exact-match para nodos condicionales. Se elimina el campo `keywords` y su nodo extractor. README y `CATEGORIAS.md` actualizados. Pendiente: análisis de `prompt_scalation`, `prompt_handoff` y flujo completo para adaptar al nuevo sistema de categorías. |
+| **v29** | **2026-06-03** | Refactor de `triggers_detection` (renombrado `categorizador`): sistema de 8 categorías + JSON reemplazado por 4 categorías planas (GENERAL, SENSIBLE, PRIORITARIA, HUMANO). Output texto plano exact-match. Se eliminan `keywords` y su nodo extractor. Se crean `prompt_sensible` y `prompt_prioritaria` como reemplazos de `prompt_scalation`. Se completan los dos nuevos prompts con lógica de nombres y mensaje de derivación directo. |
+| **v30** | **2026-06-03** | Refactor estructural del flujo: `prompt_recommend` → `prompt_general`; `prompt_handoff` → `prompt_humano`; `prompt_other` → `faq_preguntas_frecuentes`; `triggers_detection` → `categorizador`. Eliminados: `prompt_destinatario`, `prompt_scalation`, `no_study_detection`, `no_study_scalation`. Nodos de código reducidos de 11 a 5 (`customer_name`, `customer_age`, `parent_tutor_name`, `preferred_modality`, `program_pace`). Eliminadas inyecciones huérfanas `$$${schedule.output}` y `$$${consulting_type.output}` de `prompt_general`. Flujo de escalamiento clínico unificado bajo `switch_category` con 4 ramas. |
 
 ---
 
@@ -484,9 +481,10 @@ Comportamiento:
 
 ### Sesión en curso
 
-- **Commit + push de los 5 cards** aplicados localmente (ver fila "v28 +5 cards" en sec. 19). Falta empujar a `origin/main` (`https://github.com/jdavidca416/dalfonso-workspace`).
-- **Inserción manual en el sistema** (workflow estándar): copy-paste de los `.md` editados al panel online, luego re-export del JSON y re-run de `extract_nodes.py` para sincronizar.
-- **Remover SNAPSHOT TEMPORAL** de `prompt_schedule.md` cuando el endpoint de calendario vuelva. Marcadores a buscar: `TEMPORALMENTE FUERA DE SERVICIO` (línea ~11) y `# SNAPSHOT TEMPORAL DE DISPONIBILIDAD (hardcodeado)` (línea ~15).
+- **Correr `extract_nodes.py` sobre v4** para sincronizar `PromptNodes/` y `CodeNodes/` con el estado real del sistema. Algunos archivos locales tienen nombres del flujo anterior (`prompt_recommend.md`, `prompt_handoff.md`, `prompt_other.md`) y deben regenerarse o renombrarse para coincidir con los labels del JSON (`prompt_general`, `prompt_humano`, `faq_preguntas_frecuentes`).
+- **Commit + push** de todos los cambios de la sesión actual a `origin/main` (`https://github.com/jdavidca416/dalfonso-workspace`).
+- **Age gating (16-22 / 23-28 / >28)** pendiente de implementación explícita dentro de `prompt_general`. Actualmente la lógica existe en el texto del prompt pero sin nodos de condición que la refuercen a nivel de flujo.
+- **Remover SNAPSHOT TEMPORAL** de `prompt_schedule.md` cuando el endpoint de calendario vuelva. Marcadores: `TEMPORALMENTE FUERA DE SERVICIO` (línea ~11) y `# SNAPSHOT TEMPORAL DE DISPONIBILIDAD (hardcodeado)` (línea ~15).
 
 ### De fondo
 
@@ -504,8 +502,8 @@ Comportamiento:
 Si estás abriendo este repo por primera vez en un chat nuevo, leé en este orden:
 
 1. **`README.md`** (este archivo) — secciones 1, 2, 4, 9, 10, 11, 13.1, 13.2, 14, 15.
-2. **`CATEGORIAS.md`** — para entender el sistema de escalada por `triggers_detection`.
-3. **`PromptNodes/prompt_recommend.md`** — el prompt núcleo (el más largo y crítico).
+2. **`CATEGORIAS.md`** — para entender el sistema de escalada por `categorizador`.
+3. **`PromptNodes/prompt_general.md`** — el prompt núcleo (el más largo y crítico).
 4. **`PromptNodes/prompt_schedule.md`** — contiene el SNAPSHOT TEMPORAL hardcodeado (sec. 8.1).
 5. **`PromptNodes/triggers_detection.md`** — definición autoritativa de las categorías.
 
