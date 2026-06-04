@@ -3,38 +3,41 @@
 extract_nodes.py
 ================
 
-Regenera los archivos editables de prompts y nodos de código a partir de un
-export JSON del agente Lucrecia (D'Alfonso).
+Extrae los nodos editables de un agente conversacional exportado como JSON
+y los vuelca como archivos de texto listos para editar y hacer copy-paste.
 
 Estructura generada (idempotente):
 
     <workspace>/
       PromptNodes/
-        <label>.md            # un archivo por cada promptNode (texto crudo del prompt)
+        <label>.md            # un archivo por cada promptNode
       CodeNodes/
-        <label>.js            # nodos de código que NO son extractores regex de estado
+        <label>.js            # nodos de código genéricos
         GetDataNodes/
-          <label>.js          # nodos que extraen info via regex desde
-                              # identify_state.output o triggers_detection.output
+          <label>.js          # nodos que extraen datos via regex desde
+                              # una o más fuentes de estado configurables
 
-Reglas de clasificación de codeExecutionNode:
-- GetDataNode  → el código usa regex (/.../, .match(), new RegExp) Y
-                 lee de `identify_state.output` o `triggers_detection.output`.
-- CodeNode     → cualquier otro nodo de código (transformaciones, HTTP, etc.).
+Clasificación de codeExecutionNode:
+  GetDataNode  → el código usa regex (/.../, .match(), new RegExp) Y
+                 referencia al menos una de las fuentes de estado
+                 definidas con --state-sources.
+  CodeNode     → cualquier otro nodo de código.
 
 Convenciones:
-- El contenido de cada archivo es ÚNICAMENTE el cuerpo del prompt/código
-  (sin headers de metadata), listo para copy-paste al sistema.
-- Line endings normalizados a LF.
-- Archivos "huérfanos" en PromptNodes/ y CodeNodes/ (que ya no existen en el
-  JSON actual) se eliminan, salvo que se use --no-clean.
+  - Cada archivo contiene ÚNICAMENTE el cuerpo del prompt o el código JS,
+    sin metadata, listo para copy-paste al sistema.
+  - Line endings normalizados a LF.
+  - Separadores Unicode invisibles (U+2028, U+2029, U+0085) eliminados.
+  - Archivos huérfanos (que ya no existen en el JSON) se eliminan por
+    defecto; desactivar con --no-clean.
 
 Uso:
-    python3 scripts/extract_nodes.py                       # autodetecta JSON
-    python3 scripts/extract_nodes.py --json path/al.json
-    python3 scripts/extract_nodes.py --out /otro/destino
-    python3 scripts/extract_nodes.py --dry-run             # no escribe nada
-    python3 scripts/extract_nodes.py --no-clean            # no borra huérfanos
+    python3 scripts/extract_nodes.py
+    python3 scripts/extract_nodes.py --json path/al/export.json
+    python3 scripts/extract_nodes.py --out /otro/proyecto
+    python3 scripts/extract_nodes.py --state-sources identify_state.output categorizador.output
+    python3 scripts/extract_nodes.py --dry-run
+    python3 scripts/extract_nodes.py --no-clean
 """
 
 from __future__ import annotations
@@ -45,7 +48,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 
 # -----------------------------------------------------------------------------
@@ -54,7 +57,8 @@ from typing import Iterable
 
 SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_\- ]+")
 REGEX_HINT_RE = re.compile(r"\bregex\w*\b|\.match\(|new\s+RegExp", re.IGNORECASE)
-STATE_SOURCES = ("identify_state.output", "triggers_detection.output")
+
+DEFAULT_STATE_SOURCES = ["identify_state.output"]
 
 
 def safe_name(value: str, fallback: str) -> str:
@@ -65,10 +69,10 @@ def safe_name(value: str, fallback: str) -> str:
 
 def normalize_lf(text: str) -> str:
     """
-    Normaliza saltos de linea a LF y asegura un unico newline final.
+    Normaliza saltos de línea a LF y asegura un único newline final.
 
-    Convierte tambien separadores Unicode invisibles que aparecen a veces en
-    exports y rompen el copy-paste desde VS Code:
+    Convierte también separadores Unicode invisibles que aparecen en
+    algunos exports y rompen el copy-paste desde VS Code:
       U+2028  LINE SEPARATOR
       U+2029  PARAGRAPH SEPARATOR
       U+0085  NEXT LINE
@@ -83,17 +87,22 @@ def normalize_lf(text: str) -> str:
     return text.rstrip() + "\n"
 
 
-def is_regex_state_extractor(code: str) -> bool:
-    """Heurística: nodo que extrae info por regex desde el estado conversacional."""
-    if not code:
+def is_regex_state_extractor(code: str, state_sources: Sequence[str]) -> bool:
+    """
+    Heurística: nodo que extrae información por regex desde el estado
+    conversacional. Devuelve True si el código:
+      1. Contiene al menos un patrón de regex, Y
+      2. Referencia al menos una de las fuentes de estado indicadas.
+    """
+    if not code or not state_sources:
         return False
     if not REGEX_HINT_RE.search(code):
         return False
-    return any(src in code for src in STATE_SOURCES)
+    return any(src in code for src in state_sources)
 
 
 def autodetect_json(workspace: Path) -> Path | None:
-    """Devuelve el .json más reciente en la raíz del workspace, si existe uno."""
+    """Devuelve el .json más reciente en la raíz del workspace."""
     candidates = sorted(
         (p for p in workspace.glob("*.json") if p.is_file()),
         key=lambda p: p.stat().st_mtime,
@@ -103,7 +112,7 @@ def autodetect_json(workspace: Path) -> Path | None:
 
 
 def parse_nodes(raw_nodes: Iterable) -> list[dict]:
-    """Los nodes pueden venir como dicts o como strings JSON; los normaliza."""
+    """Normaliza nodos que pueden venir como dicts o como strings JSON."""
     parsed: list[dict] = []
     for n in raw_nodes:
         if isinstance(n, str):
@@ -118,7 +127,8 @@ def parse_nodes(raw_nodes: Iterable) -> list[dict]:
 
 def write_file(path: Path, content: str, dry_run: bool) -> str:
     """
-    Escribe content a path. Devuelve uno de: 'created', 'updated', 'unchanged'.
+    Escribe content en path.
+    Devuelve: 'created', 'updated' o 'unchanged'.
     """
     existed = path.exists()
     if existed:
@@ -135,8 +145,10 @@ def write_file(path: Path, content: str, dry_run: bool) -> str:
     return "updated" if existed else "created"
 
 
-def clean_orphans(folder: Path, keep: set[str], suffix: str, dry_run: bool) -> list[str]:
-    """Elimina archivos del folder con el suffix dado que no están en `keep`."""
+def clean_orphans(
+    folder: Path, keep: set[str], suffix: str, dry_run: bool
+) -> list[str]:
+    """Elimina archivos con el sufijo dado que no están en `keep`."""
     if not folder.exists():
         return []
     removed: list[str] = []
@@ -152,7 +164,13 @@ def clean_orphans(folder: Path, keep: set[str], suffix: str, dry_run: bool) -> l
 # Core extraction
 # -----------------------------------------------------------------------------
 
-def extract(json_path: Path, out_dir: Path, dry_run: bool, clean: bool) -> int:
+def extract(
+    json_path: Path,
+    out_dir: Path,
+    dry_run: bool,
+    clean: bool,
+    state_sources: Sequence[str],
+) -> int:
     if not json_path.is_file():
         print(f"ERROR: no encuentro el JSON en {json_path}", file=sys.stderr)
         return 1
@@ -168,8 +186,8 @@ def extract(json_path: Path, out_dir: Path, dry_run: bool, clean: bool) -> int:
 
     nodes = parse_nodes(raw_nodes)
 
-    prompt_dir = out_dir / "PromptNodes"
-    code_root = out_dir / "CodeNodes"
+    prompt_dir  = out_dir / "PromptNodes"
+    code_root   = out_dir / "CodeNodes"
     get_data_dir = code_root / "GetDataNodes"
 
     if not dry_run:
@@ -177,17 +195,17 @@ def extract(json_path: Path, out_dir: Path, dry_run: bool, clean: bool) -> int:
         code_root.mkdir(parents=True, exist_ok=True)
         get_data_dir.mkdir(parents=True, exist_ok=True)
 
-    prompt_files: set[str] = set()
+    prompt_files:   set[str] = set()
     code_root_files: set[str] = set()
     get_data_files: set[str] = set()
 
     stats = {"created": 0, "updated": 0, "unchanged": 0}
-    rows: list[tuple[str, str, str]] = []  # (status, kind, filename)
+    rows: list[tuple[str, str, str]] = []  # (status, kind, rel_path)
 
     for node in nodes:
-        ntype = node.get("type", "")
-        cfg = (node.get("data") or {}).get("config") or {}
-        label = (node.get("data") or {}).get("label") or ""
+        ntype  = node.get("type", "")
+        cfg    = (node.get("data") or {}).get("config") or {}
+        label  = (node.get("data") or {}).get("label") or ""
         node_id = node.get("id", "unknown")
 
         if ntype == "promptNode":
@@ -202,13 +220,13 @@ def extract(json_path: Path, out_dir: Path, dry_run: bool, clean: bool) -> int:
         elif ntype == "codeExecutionNode":
             code = cfg.get("code", "")
             filename = safe_name(label, f"code_{node_id[:8]}") + ".js"
-            if is_regex_state_extractor(code):
+            if is_regex_state_extractor(code, state_sources):
                 path = get_data_dir / filename
-                rel = f"CodeNodes/GetDataNodes/{filename}"
+                rel  = f"CodeNodes/GetDataNodes/{filename}"
                 get_data_files.add(filename)
             else:
                 path = code_root / filename
-                rel = f"CodeNodes/{filename}"
+                rel  = f"CodeNodes/{filename}"
                 code_root_files.add(filename)
             status = write_file(path, normalize_lf(code), dry_run)
             stats[status] += 1
@@ -217,8 +235,14 @@ def extract(json_path: Path, out_dir: Path, dry_run: bool, clean: bool) -> int:
     # Limpiar huérfanos
     removed: list[str] = []
     if clean:
-        removed += [f"PromptNodes/{n}" for n in clean_orphans(prompt_dir, prompt_files, ".md", dry_run)]
-        removed += [f"CodeNodes/{n}" for n in clean_orphans(code_root, code_root_files, ".js", dry_run)]
+        removed += [
+            f"PromptNodes/{n}"
+            for n in clean_orphans(prompt_dir, prompt_files, ".md", dry_run)
+        ]
+        removed += [
+            f"CodeNodes/{n}"
+            for n in clean_orphans(code_root, code_root_files, ".js", dry_run)
+        ]
         removed += [
             f"CodeNodes/GetDataNodes/{n}"
             for n in clean_orphans(get_data_dir, get_data_files, ".js", dry_run)
@@ -226,10 +250,11 @@ def extract(json_path: Path, out_dir: Path, dry_run: bool, clean: bool) -> int:
 
     # Reporte
     prefix = "[DRY-RUN] " if dry_run else ""
-    print(f"{prefix}Source : {json_path}")
-    print(f"{prefix}Output : {out_dir}")
+    print(f"{prefix}Source       : {json_path}")
+    print(f"{prefix}Output       : {out_dir}")
+    print(f"{prefix}State sources: {', '.join(state_sources)}")
     print(
-        f"{prefix}Result : {stats['created']} creados, "
+        f"{prefix}Result       : {stats['created']} creados, "
         f"{stats['updated']} actualizados, {stats['unchanged']} sin cambios, "
         f"{len(removed)} eliminados"
     )
@@ -256,7 +281,7 @@ def extract(json_path: Path, out_dir: Path, dry_run: bool, clean: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Extrae prompts y nodos de código del JSON del agente Lucrecia.",
+        description="Extrae prompts y nodos de código de un export JSON de agente conversacional.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -264,14 +289,32 @@ def main(argv: list[str] | None = None) -> int:
         "--json",
         type=Path,
         default=None,
-        help="Ruta al export JSON. Si se omite, se usa el .json más reciente en --out.",
+        help=(
+            "Ruta al export JSON. "
+            "Si se omite, se usa el .json más reciente en --out."
+        ),
     )
     parser.add_argument(
         "--out",
         type=Path,
         default=Path(__file__).resolve().parent.parent,
-        help="Workspace donde se generan PromptNodes/ y CodeNodes/. "
-             "Por defecto, la carpeta padre de scripts/.",
+        help=(
+            "Workspace donde se generan PromptNodes/ y CodeNodes/. "
+            "Por defecto, la carpeta padre de scripts/."
+        ),
+    )
+    parser.add_argument(
+        "--state-sources",
+        nargs="+",
+        default=DEFAULT_STATE_SOURCES,
+        metavar="SOURCE",
+        help=(
+            "Nombres de output de nodos que actúan como fuente de estado "
+            "conversacional. Los codeExecutionNode que los referencien y "
+            "usen regex se clasifican en GetDataNodes/. "
+            f"Por defecto: {DEFAULT_STATE_SOURCES}. "
+            "Ejemplo: --state-sources identify_state.output categorizador.output"
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -281,11 +324,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-clean",
         action="store_true",
-        help="No elimina archivos huérfanos (los que ya no están en el JSON).",
+        help="No elimina archivos huérfanos.",
     )
 
     args = parser.parse_args(argv)
-    out_dir = args.out.resolve()
+    out_dir   = args.out.resolve()
     json_path = args.json.resolve() if args.json else autodetect_json(out_dir)
 
     if json_path is None:
@@ -297,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
         out_dir=out_dir,
         dry_run=args.dry_run,
         clean=not args.no_clean,
+        state_sources=args.state_sources,
     )
 
 
