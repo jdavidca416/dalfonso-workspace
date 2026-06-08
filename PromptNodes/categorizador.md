@@ -8,16 +8,14 @@ No agregar explicación. No agregar texto adicional.
 - GENERAL — Sin clasificación clínica. Flujo normal.
 - SENSIBLE — Síntoma clínico, diagnóstico, crisis emocional o vulnerabilidad moderada.
 - PRIORITARIA — Ideación suicida, autolesión o vulnerabilidad grave (violencia, abuso, consumo problemático).
-- HUMANO — Solicitud explícita de contacto con una persona.
 
 ## Formato de salida
 
-El output debe ser ÚNICAMENTE una de estas cuatro palabras:
+El output debe ser ÚNICAMENTE una de estas tres palabras:
 
 GENERAL
 SENSIBLE
 PRIORITARIA
-HUMANO
 
 PROHIBIDO agregar puntuación, comillas, explicación o cualquier otro texto.
 
@@ -63,9 +61,9 @@ primo, prima, sobrino, sobrina, nieto, nieta, amigo, amiga, hermano, hermana, pa
 Única excepción permitida en tercera persona: "mi hijo" o "mi hija".
 Si el mensaje está en primera persona, continuar.
 
-### PASO 3 — DETECTAR HUMANO
+### PASO 3 — SOLICITUD EXPLÍCITA DE CONTACTO
 
-Clasificar como HUMANO SOLO si el mensaje contiene una solicitud EXPLÍCITA de comunicación o contacto directo.
+Si el mensaje contiene una solicitud explícita de comunicación o contacto directo, no lo clasifiques como una categoría separada. Estas situaciones deben devolver GENERAL y manejarse como parte del flujo normal.
 Debe existir claramente:
 
 1. Un verbo relacionado con comunicación:
@@ -74,11 +72,7 @@ Y/O
 2. Mención directa de canal:
 WhatsApp, teléfono, mail, email, Instagram, redes sociales, número, contacto
 
-Si aplica → devolver:
-
-    HUMANO
-
-Si NO aplica → continuar.
+Si aplica → continuar al Paso 4.
 
 ### PASO 4 — REGLA DE ACTIVACIÓN OBLIGATORIA
 

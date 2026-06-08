@@ -76,7 +76,7 @@ Cada turno del usuario pasa por un orquestador, un extractor de estado y detecto
 | `prompt_schedule` | Responde sobre disponibilidad consumiendo el calendario real. |
 | `faq_preguntas_frecuentes` | FAQ institucional, devolución vs reembolso, fuera de scope (ex `prompt_other`). |
 | `prompt_humano` | Pedidos de contacto humano, horarios, info de la organización (ex `prompt_handoff`). |
-| `categorizador` | Clasifica el mensaje en GENERAL, SENSIBLE, PRIORITARIA o HUMANO (ex `triggers_detection`). |
+| `categorizador` | Clasifica el mensaje en GENERAL, SENSIBLE o PRIORITARIA (ex `triggers_detection`). |
 | `prompt_sensible` | Escalamiento para casos clínicos moderados (ex `prompt_casos_sensibles`). |
 | `prompt_prioritaria` | Escalamiento para riesgo vital o vulnerabilidad grave (ex `prompt_prioridad_maxima`). |
 
@@ -221,18 +221,19 @@ Marcadores en el archivo (para localizar y remover cuando vuelva el endpoint):
 
 Tres caminos disparan handoff con el nodo `*_scalation` correspondiente:
 
-1. **`categorizador`** clasifica el mensaje en una de 4 categorías:
+1. **`categorizador`** clasifica el mensaje en una de 3 categorías:
 
 | Categoría | Descripción | Prompt de respuesta |
 |---|---|---|
-| GENERAL | Sin clasificación clínica. Confusión vocacional, consultas neutras. | Flujo normal → `prompt_orchestrator` → `prompt_general` / `prompt_schedule` / `faq_preguntas_frecuentes`. |
+| GENERAL | Sin clasificación clínica. Confusión vocacional, consultas neutras, solicitud explícita de contacto con una persona (canal, turno, teléfono, etc.). | Flujo normal → `prompt_orchestrator` → `prompt_general` / `prompt_schedule` / `faq_preguntas_frecuentes`. |
 | SENSIBLE | Síntoma clínico declarado, diagnóstico, tratamiento, crisis emocional moderada, padre/madre con hijo sintomático. | `prompt_sensible` |
 | PRIORITARIA | Ideación suicida, autolesión, vulnerabilidad grave (violencia, abuso, consumo problemático). | `prompt_prioritaria` |
-| HUMANO | Solicitud explícita de contacto con una persona (canal, turno, teléfono, etc.). | `prompt_humano` |
 
 Solo se evalúa en primera persona o "mi hijo/a". Confusión vocacional **no** es síntoma clínico. Mención de "reorientación" → GENERAL (no escala).
 
-2. **Edad 23-28 años con consulta de tipo vocacional** → la lógica de gating vive dentro de `prompt_general` (pendiente de implementación explícita en el prompt).
+2. **Solicitudes de contacto humano explícitas** y **age gating 23-28 años con consulta vocacional** se manejan como casos dentro de `prompt_general`, no como una categoría independiente.
+
+3. Lucrecia sigue el flujo de disponibilidad, inscripción y venta de semana de inicio solo si el usuario tiene entre 16 y 22 años y presenta confusión vocacional y/o consultas neutras sin clasificación clínica que deba derivarse a escalamiento humano.
 
 **Estilo obligatorio del mensaje de escalamiento:** sin empatía previa, sin mayúsculas enfáticas, sin números de emergencia, sin frases tipo "nuestro equipo de especialistas". Dirigirse por el nombre del interesado (o del tutor si está claro que él conduce).
 
@@ -411,7 +412,7 @@ dalfonso-workspace/
 
 ### Documentos auxiliares
 
-- **`CATEGORIAS.md`** — Referencia de las 4 categorías (`GENERAL`, `SENSIBLE`, `PRIORITARIA`, `HUMANO`) que produce `categorizador`, sus reglas de activación y cómo se consumen en `prompt_sensible`, `prompt_prioritaria` y `prompt_humano`.
+- **`CATEGORIAS.md`** — Referencia de las 3 categorías (`GENERAL`, `SENSIBLE`, `PRIORITARIA`) que produce `categorizador`, sus reglas de activación y cómo se consumen en `prompt_sensible`, `prompt_prioritaria` y `prompt_general`.
 
 Los archivos `.md` y `.js` contienen **únicamente** el texto del prompt o el código JS crudo, sin metadata, listos para copy-paste al sistema.
 
@@ -472,8 +473,8 @@ Comportamiento:
 | v26 | 2026-05-15 | Retiro de REO, nueva lógica por edad (16-22 / 23-28 / >28), mensaje fijo para mayores de 28, distinción explícita OV vs TDH por menciones de hábitos de estudio. |
 | **v28** | **2026-05-20** | Reescritura del prompt `identify_state` con estructura markdown más limpia (secciones, campos en negrita, reglas numeradas). Fix puntual en `prompt_recommend`: "orientar" → "guiar" en cierre activo de captura de nombre. |
 | **v28 +5 cards** | **2026-05-20** | (1) Reforzada diferenciación reembolso vs devolución (+ fast-path Paso 0). (2) Sedes bajo demanda — no listar todas las direcciones. (3) REO mid-conversación: prohibido re-saludar + mensaje canónico para 16-28. (4) Anti-loop Paso 7: oferta afirmativa de semanas + ruteo de afirmaciones en orchestrator. (5) Snapshot temporal de disponibilidad hardcodeado en `prompt_schedule` (endpoint caído). (+) Nuevo doc `CATEGORIAS.md`. |
-| **v29** | **2026-06-03** | Refactor de `triggers_detection` (renombrado `categorizador`): sistema de 8 categorías + JSON reemplazado por 4 categorías planas (GENERAL, SENSIBLE, PRIORITARIA, HUMANO). Output texto plano exact-match. Se eliminan `keywords` y su nodo extractor. Se crean `prompt_sensible` y `prompt_prioritaria` como reemplazos de `prompt_scalation`. Se completan los dos nuevos prompts con lógica de nombres y mensaje de derivación directo. |
-| **v30** | **2026-06-03** | Refactor estructural del flujo: `prompt_recommend` → `prompt_general`; `prompt_handoff` → `prompt_humano`; `prompt_other` → `faq_preguntas_frecuentes`; `triggers_detection` → `categorizador`. Eliminados: `prompt_destinatario`, `prompt_scalation`, `no_study_detection`, `no_study_scalation`. Nodos de código reducidos de 11 a 5 (`customer_name`, `customer_age`, `parent_tutor_name`, `preferred_modality`, `program_pace`). Eliminadas inyecciones huérfanas `$$${schedule.output}` y `$$${consulting_type.output}` de `prompt_general`. Flujo de escalamiento clínico unificado bajo `switch_category` con 4 ramas. |
+| **v29** | **2026-06-03** | Refactor de `triggers_detection` (renombrado `categorizador`): sistema de 8 categorías + JSON reemplazado por 3 categorías planas (GENERAL, SENSIBLE, PRIORITARIA). Output texto plano exact-match. Se eliminan `keywords` y su nodo extractor. Se crean `prompt_sensible` y `prompt_prioritaria` como reemplazos de `prompt_scalation`. Se completan los dos nuevos prompts con lógica de nombres y mensaje de derivación directo. |
+| **v30** | **2026-06-03** | Refactor estructural del flujo: `prompt_recommend` → `prompt_general`; `prompt_handoff` → `prompt_humano`; `prompt_other` → `faq_preguntas_frecuentes`; `triggers_detection` → `categorizador`. Eliminados: `prompt_destinatario`, `prompt_scalation`, `no_study_detection`, `no_study_scalation`. Nodos de código reducidos de 11 a 5 (`customer_name`, `customer_age`, `parent_tutor_name`, `preferred_modality`, `program_pace`). Eliminadas inyecciones huérfanas `$$${schedule.output}` y `$$${consulting_type.output}` de `prompt_general`. Flujo de escalamiento clínico unificado bajo `switch_category` con 3 ramas. |
 
 ---
 
